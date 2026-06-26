@@ -102,6 +102,41 @@ Numbered, **idempotent**, **`.env`‑driven** — PowerShell **and** bash:
 
 ---
 
+## Two ways to deploy
+
+The repo ships **both** an imperative and a declarative path — pick one.
+
+| | **Scripts** (`scripts/`) | **Terraform** (`terraform/`) |
+| --- | --- | --- |
+| Style | Imperative (az CLI + REST) | Declarative + state |
+| Capacity | Bicep | `azurerm_fabric_capacity` |
+| Items | Fabric REST | `microsoft/fabric` provider |
+| State | `.state.json` | Terraform state |
+| Stored procs | T‑SQL via SqlClient | same script via `null_resource` |
+
+Both reuse the **same** `fabric-items/` definitions and produce an **identical** environment.
+
+---
+
+## Terraform module layout
+
+```
+terraform/
+├── providers.tf        azurerm + microsoft/fabric
+├── main.tf · variables.tf · outputs.tf
+└── modules/
+    ├── capacity/   azurerm_fabric_capacity + capacity GUID lookup
+    ├── workspace/  fabric_workspace (bound to capacity)
+    ├── items/      lakehouse · warehouse · notebook · data_pipeline
+    └── sql/        null_resource → deploy-procs.ps1 (stored procs)
+```
+
+`terraform init && plan && apply` — verified end‑to‑end (8 resources) with a real
+apply/destroy cycle. Items reuse the same `__TOKEN__` definition files via the
+provider's `TextReplace` substitution.
+
+---
+
 ## Fabric — workspace contents
 
 Every item created via the Fabric REST API (Lakehouse + its SQL endpoint,

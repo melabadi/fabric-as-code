@@ -97,9 +97,15 @@ fabric-as-code/
         ├── 99-teardown.sh
         ├── common.sh
         └── deploy-all.sh
+
+terraform/                        ← optional: declarative IaC alternative
+├── providers.tf · variables.tf · main.tf · outputs.tf
+└── modules/{capacity,workspace,items,sql}/
 ```
 
 The numbered scripts can be run **individually** (to learn/debug each stage) or all at once via the **`deploy-all`** orchestrator.
+
+> **Two ways to deploy.** This repo ships **both** an imperative path (the `scripts/` above) and a declarative **Terraform** path ([`terraform/`](terraform/), `azurerm` + the `microsoft/fabric` provider). Both reuse the same [`fabric-items/`](fabric-items) definitions and produce an identical environment — see [terraform/README.md](terraform/README.md). The Terraform path is verified end-to-end (real `apply`/`destroy`).
 
 ---
 

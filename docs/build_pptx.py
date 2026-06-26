@@ -216,6 +216,29 @@ content_slide("Repeatable across tenants & RGs", [
     ("Public repo: contains no secrets", 0),
 ])
 
+table_slide(
+    "Two ways to deploy",
+    ["", "Scripts (scripts/)", "Terraform (terraform/)"],
+    [
+        ["Style", "Imperative (az CLI + REST)", "Declarative + state"],
+        ["Capacity", "Bicep", "azurerm_fabric_capacity"],
+        ["Items", "Fabric REST", "microsoft/fabric provider"],
+        ["State", ".state.json", "Terraform state"],
+        ["Stored procs", "T-SQL via SqlClient", "same script via null_resource"],
+    ],
+    col_widths=[1.9, 4.9, 4.9],
+)
+
+content_slide("Terraform module layout", [
+    ("terraform/modules/capacity — azurerm_fabric_capacity + capacity GUID lookup", 0),
+    ("terraform/modules/workspace — fabric_workspace, bound to the capacity", 0),
+    ("terraform/modules/items — lakehouse, warehouse, notebook, data_pipeline", 0),
+    ("terraform/modules/sql — null_resource -> deploy-procs.ps1 (stored procs)", 0),
+    ("Items reuse the same __TOKEN__ definition files via provider TextReplace", 1),
+    ("Verified end-to-end with a real apply/destroy (8 resources)", 1),
+    ("Run: terraform init && terraform plan && terraform apply", 0),
+])
+
 image_slide("Fabric — workspace contents",
             "Every item created via the Fabric REST API (Lakehouse + SQL endpoint, Warehouse, Notebook, Pipeline). Created by scripts 03–05.",
             ["01-workspace-list.png"])
