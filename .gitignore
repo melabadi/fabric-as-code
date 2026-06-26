@@ -23,6 +23,9 @@ crash.log
 crash.*.log
 .terraform.lock.hcl
 **/.rendered/
+tfplan
+*.tfplan
+terraform/*.out
 
 # ---- Auth artifacts ----
 *.pem
