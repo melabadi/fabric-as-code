@@ -9,6 +9,8 @@ Everything is **scripted, idempotent, and parameter-driven**, so you can repeat 
 > 📸 See [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for a visual walkthrough of a live deployment (Azure capacity + all Fabric items).
 >
 > 🖥️ Slides: [docs/presentation.md](docs/presentation.md) (Marp) · [docs/Fabric-as-Code.pptx](docs/Fabric-as-Code.pptx) · [docs/Fabric-as-Code.pdf](docs/Fabric-as-Code.pdf)
+>
+> 🏗️ Prefer Terraform? There's a parallel implementation in [terraform/](terraform/) (azurerm + the `microsoft/fabric` provider) that produces the same environment.
 
 ---
 

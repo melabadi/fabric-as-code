@@ -13,6 +13,17 @@ secrets/
 # ---- Local deployment state (resolved GUIDs, not secret but environment-specific) ----
 .state.json
 
+# ---- Terraform ----
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+.terraform.lock.hcl
+**/.rendered/
+
 # ---- Auth artifacts ----
 *.pem
 *.pfx

@@ -1,0 +1,24 @@
+# =============================================================================
+# terraform.tfvars.example
+# Copy to terraform.tfvars (git-ignored) and fill in your values.
+# =============================================================================
+
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+resource_group = "rg-fabric-as-code"
+location       = "westus3"
+
+capacity_name   = "fabasccapacity01"
+capacity_sku    = "F2"
+capacity_admins = ["admin@contoso.com"]
+
+workspace_name        = "Fabric-as-Code Demo"
+workspace_description = "Workspace provisioned end-to-end by the fabric-as-code repo (Terraform)."
+
+lakehouse_name = "lh_demo"
+warehouse_name = "wh_demo"
+notebook_name  = "nb_demo_load"
+pipeline_name  = "pl_demo_ingest"
+
+deploy_stored_procedures = true
