@@ -1,0 +1,33 @@
+{
+  "$schema": "./environment.schema.json",
+  "_comment": "Copy this file to environment.json (git-ignored) OR drive everything from .env. The PowerShell scripts read .env by default; this JSON is an alternative for teams that prefer structured config. Values here mirror the .env keys.",
+
+  "tenantId": "00000000-0000-0000-0000-000000000000",
+  "subscriptionId": "00000000-0000-0000-0000-000000000000",
+
+  "resourceGroup": "rg-fabric-as-code",
+  "location": "westeurope",
+
+  "capacity": {
+    "name": "fabasccapacity01",
+    "sku": "F2",
+    "admins": ["admin@contoso.com"]
+  },
+
+  "workspace": {
+    "name": "Fabric-as-Code Demo",
+    "description": "Workspace provisioned end-to-end by the fabric-as-code repo."
+  },
+
+  "items": {
+    "lakehouseName": "lh_demo",
+    "warehouseName": "wh_demo",
+    "notebookName": "nb_demo_load",
+    "pipelineName": "pl_demo_ingest"
+  },
+
+  "servicePrincipal": {
+    "clientId": "",
+    "clientSecret": ""
+  }
+}

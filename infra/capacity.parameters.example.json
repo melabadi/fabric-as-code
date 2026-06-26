@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "_comment": "Copy to capacity.parameters.json (git-ignored) and edit. Or pass parameters inline via --parameters on the CLI / let the scripts handle it from .env.",
+  "parameters": {
+    "capacityName": {
+      "value": "fabasccapacity01"
+    },
+    "location": {
+      "value": "westeurope"
+    },
+    "skuName": {
+      "value": "F2"
+    },
+    "adminMembers": {
+      "value": ["admin@contoso.com"]
+    }
+  }
+}

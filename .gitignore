@@ -1,0 +1,40 @@
+# ---- Secrets & local config (NEVER commit to a public repo) ----
+.env
+*.env
+!.env.example
+config/environment.json
+config/*.local.json
+infra/*.parameters.json
+!infra/*.parameters.example.json
+*.secret
+secrets/
+.azure/
+
+# ---- Local deployment state (resolved GUIDs, not secret but environment-specific) ----
+.state.json
+
+# ---- Auth artifacts ----
+*.pem
+*.pfx
+*.key
+*.token
+accessToken*.txt
+
+# ---- Tooling output ----
+*.log
+.output/
+out/
+dist/
+tmp/
+.tmp/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.vscode/*.local
+*.swp
+
+# ---- Python (notebooks / venv) ----
+__pycache__/
+.venv/
+.ipynb_checkpoints/
