@@ -1,0 +1,75 @@
+# Copy to <environment>.tfvars in this directory. The pull-request workflow
+# plans that environment; merging the same file to main deploys it.
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+provision_platform      = true
+deployment_environment  = "replace-with-environment"
+item_deployment_profile = "p0"
+
+resource_group  = "rg-replace-fabric"
+location        = "westeurope"
+capacity_name   = "replacewithuniquecapacity"
+capacity_sku    = "F2"
+capacity_admins = [
+  "fabric-admins@contoso.com",
+]
+
+workspace_name            = "Replace Fabric CI-CD"
+workspace_description     = "P0 deployment workspace managed by Terraform."
+git_workspace_name        = "Replace Fabric Git"
+git_workspace_description = "Authoring workspace connected to the Fabric Git definition directory."
+
+# Policies/Security demonstration values. These GUIDs, IP address, and Key
+# Vault names are intentionally synthetic and must be replaced before apply.
+fabric_workspace_firewall_ip = "198.51.100.10"
+
+workspace_role_assignments = {
+  platform_admins = {
+    workspaces      = ["cicd", "git"]
+    principal_id   = "00000000-0000-0000-0000-000000000001"
+    principal_type = "Group"
+    role           = "Admin"
+  }
+  cicd_contributors = {
+    principal_id   = "00000000-0000-0000-0000-000000000002"
+    principal_type = "Group"
+    role           = "Contributor"
+  }
+}
+
+# Before enabling this block, complete the tenant, Fabric Platform CMK service
+# principal, Key Vault purge-protection, and key-permission prerequisites.
+workspace_encryption = {
+  cicd = {
+    key_identifier = "https://replace-with-vault.vault.azure.net/keys/fabric-workspace"
+  }
+  git = {
+    key_identifier = "https://replace-with-vault.vault.azure.net/keys/fabric-git"
+  }
+}
+
+# Controls the supported post-deployment and scheduled security canaries.
+# Fabric-native Workspace monitoring remains a separate manual portal setup.
+workspace_security_monitoring_enabled = true
+
+# Create and share the Fabric GitHub connection first, then uncomment this map.
+# Repository creation is intentionally outside this deployment's P0 scope.
+# git_integration = {
+#   provider_type   = "GitHub"
+#   owner_name      = "replace-with-owner"
+#   repository_name = "replace-with-repository"
+#   branch_name     = "main"
+#   directory_name  = "/fabric-git"
+#   connection_id   = "00000000-0000-0000-0000-000000000003"
+# }
+
+lakehouse_name = "lh_replace"
+warehouse_name = "wh_replace"
+notebook_name  = "nb_replace"
+
+deploy_stored_procedures = true
+
+# Fabric-native Workspace monitoring is an admin portal handoff until a public
+# lifecycle API exists. Azure Firewall diagnostics and the canaries are managed by
+# terraform/runner-network and GitHub Actions.

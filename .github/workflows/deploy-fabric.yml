@@ -1,0 +1,223 @@
+name: Deploy Fabric
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/deploy-fabric.yml
+      - fabric-git/**
+      - scripts/powershell/**
+      - terraform/**
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub Environment to deploy
+        required: true
+        default: dev
+        type: environment
+
+permissions:
+  contents: read
+
+jobs:
+  select-environments:
+    name: Select Terraform environments
+    runs-on: ubuntu-latest
+    outputs:
+      has_targets: ${{ steps.select.outputs.has_targets }}
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select changed tfvars
+        id: select
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.sha }}
+          REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          ./scripts/powershell/select-terraform-environments.ps1 `
+            -Mode Deploy `
+            -EventName $env:EVENT_NAME `
+            -BaseSha $env:BASE_SHA `
+            -HeadSha $env:HEAD_SHA `
+            -RequestedEnvironment $env:REQUESTED_ENVIRONMENT
+
+  deploy:
+    needs: select-environments
+    if: needs.select-environments.outputs.has_targets == 'true'
+    name: Deploy Fabric (${{ matrix.environment }})
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select-environments.outputs.matrix) }}
+    environment:
+      name: ${{ matrix.environment }}
+    concurrency:
+      group: fabric-deployment-${{ matrix.environment }}
+      cancel-in-progress: false
+    # Azure VNet injection supports GitHub-hosted larger runners only. Define
+    # FABRIC_RUNNER_LABELS at repository/organization scope to override the
+    # default ["fabric-vnet-runner"]. Environment vars resolve too late here.
+    # https://docs.github.com/en/organizations/managing-organization-settings/about-azure-private-networking-for-github-hosted-runners-in-your-organization#about-using-larger-runners-with-azure-vnet
+    runs-on: ${{ fromJSON(vars.FABRIC_RUNNER_LABELS || '["fabric-vnet-runner"]') }}
+    timeout-minutes: 180
+    env:
+      AZURE_CONFIG_DIR: ${{ github.workspace }}/.azure
+      ARM_USE_OIDC: 'true'
+      ARM_USE_AZUREAD: 'true'
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      DEPLOYMENT_ENVIRONMENT: ${{ matrix.environment }}
+      VAR_FILE: ${{ matrix.var_file }}
+      # Fabric disables workspace-level inbound network rules by default. Keep
+      # deployment independent until a Fabric admin enables both tenant gates.
+      # https://learn.microsoft.com/fabric/security/security-workspace-enable-inbound-access-protection
+      MANAGE_WORKSPACE_FIREWALL: ${{ vars.FABRIC_MANAGE_WORKSPACE_FIREWALL || 'false' }}
+      TF_BACKEND_RESOURCE_GROUP: ${{ vars.TF_STATE_RESOURCE_GROUP }}
+      TF_BACKEND_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_BACKEND_CONTAINER: ${{ vars.TF_STATE_CONTAINER || 'tfstate' }}
+      RUNNER_NETWORK_RESOURCE_GROUP: ${{ vars.RUNNER_NETWORK_RESOURCE_GROUP }}
+      RUNNER_FIREWALL_POLICY_NAME: ${{ vars.RUNNER_FIREWALL_POLICY_NAME }}
+      RUNNER_FIREWALL_RULE_COLLECTION_GROUP_NAME: ${{ vars.RUNNER_FIREWALL_RULE_COLLECTION_GROUP_NAME }}
+      TF_IN_AUTOMATION: true
+      TF_INPUT: false
+      TF_VAR_fabric_workspace_firewall_ip: ${{ vars.FABRIC_MANAGE_WORKSPACE_FIREWALL == 'true' && vars.FABRIC_DEPLOYMENT_EGRESS_IP || '' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.3
+          terraform_wrapper: false
+
+      - name: Validate deployment inputs
+        shell: pwsh
+        env:
+          TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          BACKEND_RESOURCE_GROUP: ${{ vars.TF_STATE_RESOURCE_GROUP }}
+          BACKEND_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+          BACKEND_CONTAINER: ${{ vars.TF_STATE_CONTAINER || 'tfstate' }}
+          NETWORK_RESOURCE_GROUP: ${{ vars.RUNNER_NETWORK_RESOURCE_GROUP }}
+          FIREWALL_POLICY_NAME: ${{ vars.RUNNER_FIREWALL_POLICY_NAME }}
+          FIREWALL_RULE_COLLECTION_GROUP_NAME: ${{ vars.RUNNER_FIREWALL_RULE_COLLECTION_GROUP_NAME }}
+          DEPLOYMENT_EGRESS_IP: ${{ vars.FABRIC_DEPLOYMENT_EGRESS_IP }}
+        run: |
+          if ($env:MANAGE_WORKSPACE_FIREWALL -notin @('true', 'false')) {
+            throw 'FABRIC_MANAGE_WORKSPACE_FIREWALL must be true or false.'
+          }
+          $manageWorkspaceFirewall = [bool]::Parse($env:MANAGE_WORKSPACE_FIREWALL)
+
+          $requiredVariables = @(
+            'TENANT_ID'
+            'SUBSCRIPTION_ID'
+            'BACKEND_RESOURCE_GROUP'
+            'BACKEND_STORAGE_ACCOUNT'
+            'BACKEND_CONTAINER'
+          )
+          if ($manageWorkspaceFirewall) {
+            $requiredVariables += 'DEPLOYMENT_EGRESS_IP'
+          }
+          $requiredVariables += @(
+            'NETWORK_RESOURCE_GROUP'
+            'FIREWALL_POLICY_NAME'
+            'FIREWALL_RULE_COLLECTION_GROUP_NAME'
+          )
+          $missingVariables = @($requiredVariables | Where-Object {
+              [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_))
+            })
+          if ($missingVariables.Count -gt 0) {
+            throw "Missing GitHub Actions variables: $($missingVariables -join ', ')"
+          }
+
+          if ($manageWorkspaceFirewall) {
+            $parsedEgressIp = $null
+            if (-not [Net.IPAddress]::TryParse($env:DEPLOYMENT_EGRESS_IP, [ref] $parsedEgressIp) -or
+                $parsedEgressIp.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
+              throw 'FABRIC_DEPLOYMENT_EGRESS_IP must be the Azure Firewall public IPv4 address.'
+            }
+          }
+          if (-not (Test-Path -LiteralPath $env:VAR_FILE -PathType Leaf)) {
+            throw "Terraform variable file '$env:VAR_FILE' does not exist."
+          }
+
+      - name: Verify Azure context
+        shell: pwsh
+        env:
+          EXPECTED_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          $account = az account show | ConvertFrom-Json
+          if ($account.tenantId -ne $env:EXPECTED_TENANT_ID) {
+            throw "Azure CLI tenant does not match AZURE_TENANT_ID."
+          }
+          if ($account.id -ne $env:EXPECTED_SUBSCRIPTION_ID) {
+            throw "Azure CLI subscription does not match AZURE_SUBSCRIPTION_ID."
+          }
+
+      - name: Deploy Fabric environment with Terraform
+        shell: pwsh
+        run: |
+          ./scripts/powershell/deploy-terraform.ps1 `
+            -Environment $env:DEPLOYMENT_ENVIRONMENT `
+            -VarFile $env:VAR_FILE
+
+      - name: Load deployed Fabric outputs
+        shell: pwsh
+        run: |
+          $outputs = terraform -chdir=terraform output -json | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to read deployed Terraform outputs for monitoring.'
+          }
+          $requiredOutputs = @{
+            AZURE_LOCATION                    = 'location'
+            FABRIC_SECURITY_MONITORING_ENABLED = 'workspace_security_monitoring_enabled'
+            FABRIC_WORKSPACE_ID               = 'cicd_workspace_id'
+            FABRIC_WAREHOUSE_ID               = 'warehouse_id'
+            FABRIC_WAREHOUSE_NAME             = 'warehouse_name'
+          }
+          foreach ($entry in $requiredOutputs.GetEnumerator()) {
+            $property = $outputs.PSObject.Properties[$entry.Value]
+            if ($null -eq $property -or [string]::IsNullOrWhiteSpace([string] $property.Value.value)) {
+              throw "Terraform output '$($entry.Value)' is required for deployment monitoring."
+            }
+            "$($entry.Key)=$($property.Value.value)" >> $env:GITHUB_ENV
+          }
+          $cmkOutput = $outputs.PSObject.Properties['cicd_workspace_cmk_key_identifier']
+          if ($null -ne $cmkOutput -and $null -ne $cmkOutput.Value.value) {
+            "FABRIC_WORKSPACE_CMK_KEY_IDENTIFIER=$($cmkOutput.Value.value)" >> $env:GITHUB_ENV
+          }
+
+      - name: Verify deployed Fabric paths
+        shell: pwsh
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+          FABRIC_MANAGE_WORKSPACE_FIREWALL: ${{ vars.FABRIC_MANAGE_WORKSPACE_FIREWALL || 'false' }}
+          FABRIC_DEPLOYMENT_EGRESS_IP: ${{ vars.FABRIC_DEPLOYMENT_EGRESS_IP }}
+        run: |
+          if ([bool]::Parse($env:FABRIC_SECURITY_MONITORING_ENABLED)) {
+            ./scripts/powershell/verify-fabric-network.ps1
+          } else {
+            Write-Host 'Workspace security monitoring is disabled by Terraform configuration.'
+          }

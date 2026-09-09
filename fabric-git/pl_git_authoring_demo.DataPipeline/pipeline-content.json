@@ -1,0 +1,30 @@
+{
+  "properties": {
+    "activities": [
+      {
+        "type": "Wait",
+        "typeProperties": {
+          "waitTimeInSeconds": 5
+        },
+        "name": "Wait_BeforeNotebook",
+        "dependsOn": []
+      },
+      {
+        "type": "TridentNotebook",
+        "typeProperties": {
+          "notebookId": "22222222-2222-4222-8222-222222222222",
+          "workspaceId": "00000000-0000-0000-0000-000000000000"
+        },
+        "name": "Run_Notebook",
+        "dependsOn": [
+          {
+            "activity": "Wait_BeforeNotebook",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

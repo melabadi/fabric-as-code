@@ -1,0 +1,27 @@
+# Azure and Entra identifiers are configuration, not credentials.
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+# Use the service principal OBJECT ID here, not AZURE_CLIENT_ID.
+deployment_principal_object_id = "00000000-0000-0000-0000-000000000000"
+
+# Initial GHE.com setup uses the enterprise GraphQL databaseId. Organization IDs
+# are valid only after enterprise policy permits independent org configurations.
+github_business_database_id = "12345678"
+
+# The shared enterprise has US data residency. Its x64 VNet runners support
+# centralus, eastus2, and westus3.
+github_enterprise_hostname       = "example.ghe.com"
+github_data_residency_geography = "us"
+location                         = "westus3"
+
+resource_group_name        = "rg-example-fabric-runner"
+name_prefix                = "example-fabric"
+state_storage_account_name = "replacewithgloballyuniquename"
+state_container_name       = "tfstate"
+
+tags = {
+  environment = "shared"
+  managedBy   = "fabric-as-code"
+  workload    = "github-hosted-runner"
+}

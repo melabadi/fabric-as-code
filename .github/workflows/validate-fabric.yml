@@ -1,0 +1,101 @@
+name: Validate Fabric Terraform
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/deploy-fabric.yml
+      - .github/workflows/validate-fabric.yml
+      - fabric-git/**
+      - scripts/powershell/**
+      - terraform/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fabric-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  select-environments:
+    name: Select Terraform environments
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - name: Check out pull request without credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select changed tfvars
+        id: select
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          ./scripts/powershell/select-terraform-environments.ps1 `
+            -Mode Validate `
+            -EventName pull_request `
+            -BaseSha $env:BASE_SHA `
+            -HeadSha $env:HEAD_SHA
+
+      - name: Test new tfvars selection
+        shell: pwsh
+        run: ./scripts/powershell/test-terraform-environment-selection.ps1
+
+      - name: Check public repository hygiene
+        shell: pwsh
+        run: ./scripts/powershell/test-public-repository-hygiene.ps1
+
+  validate:
+    needs: select-environments
+    name: Validate Fabric (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select-environments.outputs.matrix) }}
+    env:
+      EXPECTED_ENVIRONMENT: ${{ matrix.environment }}
+      VAR_FILE: ${{ matrix.var_file }}
+      TF_IN_AUTOMATION: true
+      TF_INPUT: false
+
+    steps:
+      - name: Check out pull request without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.3
+          terraform_wrapper: false
+
+      - name: Validate Terraform and mocked plans
+        shell: pwsh
+        run: |
+          terraform -chdir=terraform fmt -check -recursive
+          if ($LASTEXITCODE -ne 0) { throw 'Terraform formatting check failed.' }
+          terraform -chdir=terraform init -backend=false -input=false
+          if ($LASTEXITCODE -ne 0) { throw 'Terraform initialization failed.' }
+          terraform -chdir=terraform validate
+          if ($LASTEXITCODE -ne 0) { throw 'Terraform validation failed.' }
+          terraform -chdir=terraform test -no-color
+          if ($LASTEXITCODE -ne 0) { throw 'Terraform mocked plan tests failed.' }
+
+      - name: Validate selected tfvars contract
+        shell: pwsh
+        run: |
+          ./scripts/powershell/validate-terraform-var-file.ps1 `
+            -VarFile $env:VAR_FILE `
+            -ExpectedEnvironment $env:EXPECTED_ENVIRONMENT

@@ -1,0 +1,16 @@
+{
+  "servers": {
+    "azure": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["--yes", "--package", "@azure/mcp@latest", "azmcp", "server", "start", "--read-only"],
+      "env": {
+        "AZURE_MCP_COLLECT_TELEMETRY": "false"
+      }
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp"
+    }
+  }
+}

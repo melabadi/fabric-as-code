@@ -1,0 +1,130 @@
+name: Verify Fabric Network
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+
+concurrency:
+  group: fabric-network-canary
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch' || vars.FABRIC_ENABLE_SCHEDULED_CANARY == 'true'
+    name: Verify Fabric network path
+    environment: dev
+    runs-on: ${{ fromJSON(vars.FABRIC_RUNNER_LABELS || '["fabric-vnet-runner"]') }}
+    timeout-minutes: 30
+    env:
+      AZURE_CONFIG_DIR: ${{ github.workspace }}/.azure
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: 'true'
+      ARM_USE_AZUREAD: 'true'
+      TF_BACKEND_RESOURCE_GROUP: ${{ vars.TF_STATE_RESOURCE_GROUP }}
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_BACKEND_CONTAINER: ${{ vars.TF_STATE_CONTAINER || 'tfstate' }}
+      RUNNER_NETWORK_RESOURCE_GROUP: ${{ vars.RUNNER_NETWORK_RESOURCE_GROUP }}
+      RUNNER_FIREWALL_POLICY_NAME: ${{ vars.RUNNER_FIREWALL_POLICY_NAME }}
+      RUNNER_FIREWALL_RULE_COLLECTION_GROUP_NAME: ${{ vars.RUNNER_FIREWALL_RULE_COLLECTION_GROUP_NAME }}
+      FABRIC_MANAGE_WORKSPACE_FIREWALL: ${{ vars.FABRIC_MANAGE_WORKSPACE_FIREWALL || 'false' }}
+      FABRIC_DEPLOYMENT_EGRESS_IP: ${{ vars.FABRIC_DEPLOYMENT_EGRESS_IP }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Skip while a dev deployment is queued or running
+        id: deployment
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+          }
+          $uri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/workflows/deploy-fabric.yml/runs?per_page=100"
+          $runs = Invoke-RestMethod -Method Get -Uri $uri -Headers $headers
+          $activeRuns = @($runs.workflow_runs | Where-Object {
+              $_.status -in @('queued', 'in_progress', 'waiting', 'requested', 'pending')
+            })
+          if ($activeRuns.Count -gt 0) {
+            'skip=true' >> $env:GITHUB_OUTPUT
+            Write-Host 'A Fabric deployment is queued or running; this canary run is skipped.'
+          } else {
+            'skip=false' >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Sign in to Azure with OIDC
+        if: steps.deployment.outputs.skip != 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up Terraform
+        if: steps.deployment.outputs.skip != 'true'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.3
+          terraform_wrapper: false
+
+      - name: Load monitored Fabric outputs
+        if: steps.deployment.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          terraform -chdir=terraform init -reconfigure -input=false `
+            -backend-config="resource_group_name=$env:TF_BACKEND_RESOURCE_GROUP" `
+            -backend-config="storage_account_name=$env:TF_STATE_STORAGE_ACCOUNT" `
+            -backend-config="container_name=$env:TF_BACKEND_CONTAINER" `
+            -backend-config="key=dev/terraform.tfstate" `
+            -backend-config="use_azuread_auth=true" `
+            -backend-config="use_oidc=true" `
+            -backend-config="client_id=$env:AZURE_CLIENT_ID" `
+            -backend-config="tenant_id=$env:AZURE_TENANT_ID" `
+            -backend-config="subscription_id=$env:AZURE_SUBSCRIPTION_ID"
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to initialize the dev Terraform state for monitoring.'
+          }
+
+          $outputs = terraform -chdir=terraform output -json | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to read dev Terraform outputs for monitoring.'
+          }
+          $requiredOutputs = @{
+            AZURE_LOCATION                    = 'location'
+            FABRIC_SECURITY_MONITORING_ENABLED = 'workspace_security_monitoring_enabled'
+            FABRIC_WORKSPACE_ID               = 'cicd_workspace_id'
+            FABRIC_WAREHOUSE_ID               = 'warehouse_id'
+            FABRIC_WAREHOUSE_NAME             = 'warehouse_name'
+          }
+          foreach ($entry in $requiredOutputs.GetEnumerator()) {
+            $property = $outputs.PSObject.Properties[$entry.Value]
+            if ($null -eq $property -or [string]::IsNullOrWhiteSpace([string] $property.Value.value)) {
+              throw "Terraform output '$($entry.Value)' is required for monitoring."
+            }
+            "$($entry.Key)=$($property.Value.value)" >> $env:GITHUB_ENV
+          }
+          $cmkOutput = $outputs.PSObject.Properties['cicd_workspace_cmk_key_identifier']
+          if ($null -ne $cmkOutput -and $null -ne $cmkOutput.Value.value) {
+            "FABRIC_WORKSPACE_CMK_KEY_IDENTIFIER=$($cmkOutput.Value.value)" >> $env:GITHUB_ENV
+          }
+
+      - name: Verify service tags and Fabric connectivity
+        if: steps.deployment.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          if ([bool]::Parse($env:FABRIC_SECURITY_MONITORING_ENABLED)) {
+            ./scripts/powershell/verify-fabric-network.ps1
+          } else {
+            Write-Host 'Workspace security monitoring is disabled by Terraform configuration.'
+          }

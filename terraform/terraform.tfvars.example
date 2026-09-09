@@ -1,0 +1,60 @@
+# =============================================================================
+# terraform.tfvars.example
+# Existing-workspace template. Copy to terraform.tfvars (git-ignored), replace
+# identifiers, and keep credentials out; providers authenticate through Azure CLI.
+# =============================================================================
+
+# Azure/Entra target identifiers. These select context but are not credentials.
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+# Existing-workspace mode requires the CI/CD workspace_id. Set an item ID to
+# adopt it into state; leave it null to create a new item in this workspace.
+provision_platform      = false
+manage_workspaces       = true
+deployment_environment  = "shared-dev"
+item_deployment_profile = "all"
+resource_group          = "rg-existing-fabric-capacity"
+capacity_name           = "existingfabriccapacity"
+fabric_capacity_id      = "00000000-0000-0000-0000-000000000010"
+workspace_id            = "00000000-0000-0000-0000-000000000000"
+git_workspace_id        = "00000000-0000-0000-0000-000000000001"
+lakehouse_id            = null
+warehouse_id            = null
+notebook_id             = null
+pipeline_id             = null
+environment_id          = null
+eventhouse_id           = null
+kql_database_id         = null
+variable_library_id     = null
+ml_experiment_id        = null
+
+# Display names are applied to both created and adopted items.
+lakehouse_name        = "lh_demo"
+warehouse_name        = "wh_demo"
+notebook_name         = "nb_demo_load"
+pipeline_name         = "pl_demo_ingest"
+environment_name      = "env_demo_spark"
+eventhouse_name       = "eh_demo_events"
+kql_database_name     = "kqldb_demo_events"
+variable_library_name = "vl_demo_config"
+ml_experiment_name    = "mlexp_demo_forecast"
+
+# Set false when the runner should not execute the repository's ordered SQL files.
+deploy_stored_procedures = true
+
+# Set in CI from runner-network.firewall_public_ip_address. Leave null while
+# migrating the former runner or when workspace IP firewall management is external.
+fabric_workspace_firewall_ip = null
+
+# Optional provider-managed Git connection for a separate authoring workspace.
+# Set git_workspace_id above to that workspace's GUID. Terraform continues to
+# deploy all managed items only to workspace_id.
+# git_integration = {
+#   provider_type   = "GitHub"
+#   owner_name      = "example-owner"
+#   repository_name = "fabric-as-code"
+#   branch_name     = "main"
+#   directory_name  = "/fabric-git"
+#   connection_id   = "00000000-0000-0000-0000-000000000000"
+# }
