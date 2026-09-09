@@ -136,6 +136,21 @@ pwsh ./scripts/powershell/validate-terraform-var-file.ps1 `
   creation, and portal-only Fabric Workspace monitoring remain administrator
   prerequisites or handoffs.
 
+## Public promotion
+
+Maintainers with a private upstream can publish shared implementation changes
+without transferring private Git history. After the private `Deploy Fabric`
+workflow succeeds on `main`, the publisher checks out public `main` separately,
+copies only the byte-for-byte shared files listed in the private export
+manifest, and runs the public hygiene, secret-scanning, Terraform, and script
+validation gates. A unique promotion branch is then reviewed and merged through
+the public repository's release workflow.
+
+Files that intentionally contain public templates or private deployment
+evidence are never synchronized by default. Adding a new path requires an
+explicit allowlist change. A manual publisher dispatch covers documentation-only
+changes that do not start the private deployment workflow.
+
 ## Learn more
 
 - [AzureRM provider documentation](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs)
