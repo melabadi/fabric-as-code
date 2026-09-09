@@ -4,9 +4,13 @@ on:
   push:
     branches:
       - automation/public-sync-*
-  pull_request:
+  pull_request_target:
     branches:
       - main
+    types:
+      - opened
+      - synchronize
+      - reopened
   workflow_dispatch:
 
 permissions:
@@ -18,7 +22,11 @@ concurrency:
 
 jobs:
   validate:
-    name: ${{ github.event_name == 'pull_request' && 'Public release PR gate' || 'Public release candidate' }}
+    name: ${{ github.event_name == 'pull_request_target' && 'Public release PR gate' || 'Public release candidate' }}
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'automation/public-sync-'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -26,6 +34,7 @@ jobs:
       - name: Check out candidate without credentials
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -38,7 +47,7 @@ jobs:
       - name: Enforce automated promotion paths
         shell: pwsh
         env:
-          CANDIDATE_BRANCH: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          CANDIDATE_BRANCH: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.ref || github.ref_name }}
         run: |
           if ($env:CANDIDATE_BRANCH -notlike 'automation/public-sync-*') {
             Write-Host 'Ordinary public change; the public sync allowlist does not apply.'
