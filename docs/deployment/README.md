@@ -147,7 +147,9 @@ validation gates. A unique promotion branch is then reviewed and merged through
 the public repository's release workflow. Protected public `main` requires both
 a pull request and the GitHub Actions app-bound `Public release candidate`
 check. The publisher queues squash auto-merge after that check succeeds, and
-GitHub removes the promotion branch after merge.
+GitHub removes the promotion branch after merge. Publication stops if public
+`main` advances or the validated check is not associated within the bounded
+wait period.
 
 Files that intentionally contain public templates or private deployment
 evidence are never synchronized by default. Adding a new path requires an
