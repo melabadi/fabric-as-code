@@ -45,12 +45,9 @@ if ($varFilePath) {
 $variableOverrideArguments = @()
 if (Test-Path Env:TF_VAR_fabric_workspace_firewall_ip) {
     $firewallIpOverride = [string] $env:TF_VAR_fabric_workspace_firewall_ip
-    $firewallIpValue = if ([string]::IsNullOrWhiteSpace($firewallIpOverride)) {
-        'null'
-    } else {
-        $firewallIpOverride
+    if (-not [string]::IsNullOrWhiteSpace($firewallIpOverride)) {
+        $variableOverrideArguments += "-var=fabric_workspace_firewall_ip=$firewallIpOverride"
     }
-    $variableOverrideArguments += "-var=fabric_workspace_firewall_ip=$firewallIpValue"
 }
 
 if ([string]::IsNullOrWhiteSpace($BackendKey)) {
