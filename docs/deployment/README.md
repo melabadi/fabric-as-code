@@ -146,7 +146,8 @@ manifest, and runs the public hygiene, secret-scanning, Terraform, and script
 validation gates. A unique promotion branch is then reviewed and merged through
 the public repository's release workflow. Protected public `main` requires the
 `Public release PR gate`; the publisher queues auto-merge and leaves the branch
-available until that check succeeds.
+available until that check succeeds. The PR gate runs trusted workflow code from
+public `main` and accepts only same-repository promotion branches.
 
 Files that intentionally contain public templates or private deployment
 evidence are never synchronized by default. Adding a new path requires an
