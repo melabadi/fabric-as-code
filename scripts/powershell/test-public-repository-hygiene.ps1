@@ -16,6 +16,21 @@ try {
         throw 'Unable to enumerate tracked files.'
     }
 
+    $forbiddenPaths = @(
+        '.github/public-sync/'
+        '.github/workflows/publish-public.yml'
+        'docs/MCAPS_FABRIC_RUNNER_EXAMPLE_LINKS.md'
+        'docs/screenshots/'
+        'scripts/powershell/export-public-repository.ps1'
+    )
+    foreach ($path in $trackedFiles) {
+        if (@($forbiddenPaths | Where-Object {
+                    $path -ceq $_ -or ($_.EndsWith('/') -and $path.StartsWith($_, [StringComparison]::Ordinal))
+                }).Count -gt 0) {
+            $violations.Add("Tracked private publication path: $path")
+        }
+    }
+
     $allowedGeneratedArtifacts = @(
         'docs/Fabric-as-Code.pdf'
         'docs/Fabric-as-Code.pptx'
@@ -42,6 +57,11 @@ try {
         '33333333-3333-4333-8333-333333333333'
     )
     $allowedGheHosts = @('auth.ghe.com', 'example.ghe.com')
+    $privateIdentityPatterns = [ordered]@{
+        'Private GitHub organization marker' = '(?i)\bGHU-Recap\b'
+        'Private GitHub account marker'      = '(?i)\bmehdilabadi_microsoft\b'
+        'Private repository marker'          = '(?i)\bfabric-cicd\b'
+    }
     $guidPattern = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'
     $gheHostPattern = '(?i)(?:[a-z0-9-]+\.)+ghe\.com'
     foreach ($path in $trackedFiles) {
@@ -62,6 +82,11 @@ try {
             }
             if ($line -match '/subscriptions/[0-9A-Fa-f-]+/resourceGroups/') {
                 $violations.Add("Concrete Azure resource ID in ${path}:$lineNumber")
+            }
+            foreach ($entry in $privateIdentityPatterns.GetEnumerator()) {
+                if ($line -match $entry.Value) {
+                    $violations.Add("$($entry.Key) in ${path}:$lineNumber")
+                }
             }
             foreach ($match in [regex]::Matches($line, $gheHostPattern)) {
                 if ($match.Value.ToLowerInvariant() -notin $allowedGheHosts) {

@@ -1,0 +1,149 @@
+name: Public Release Gate
+
+on:
+  push:
+    branches:
+      - automation/public-sync-*
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Public release gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out candidate without credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.3
+          terraform_wrapper: false
+
+      - name: Check public repository hygiene
+        shell: pwsh
+        run: ./scripts/powershell/test-public-repository-hygiene.ps1
+
+      - name: Scan public tree with Gitleaks
+        shell: pwsh
+        run: |
+          docker run --rm `
+            -v "${{ github.workspace }}:/repo" `
+            zricethezav/gitleaks:v8.30.1 `
+            detect --source=/repo --no-git --redact --verbose
+
+      - name: Validate Terraform
+        shell: pwsh
+        run: |
+          terraform -chdir=terraform fmt -check -recursive
+          if ($LASTEXITCODE -ne 0) { throw 'Terraform formatting check failed.' }
+
+          $rootData = Join-Path $env:RUNNER_TEMP 'public-root-terraform'
+          $runnerData = Join-Path $env:RUNNER_TEMP 'public-runner-terraform'
+          try {
+            $env:TF_DATA_DIR = $rootData
+            terraform -chdir=terraform init -backend=false -input=false -lockfile=readonly -no-color
+            if ($LASTEXITCODE -ne 0) { throw 'Root Terraform initialization failed.' }
+            terraform -chdir=terraform validate -no-color
+            if ($LASTEXITCODE -ne 0) { throw 'Root Terraform validation failed.' }
+            terraform -chdir=terraform test -no-color
+            if ($LASTEXITCODE -ne 0) { throw 'Root Terraform mocked tests failed.' }
+
+            $env:TF_DATA_DIR = $runnerData
+            terraform -chdir=terraform/runner-network init -backend=false -input=false -lockfile=readonly -no-color
+            if ($LASTEXITCODE -ne 0) { throw 'Runner Terraform initialization failed.' }
+            terraform -chdir=terraform/runner-network validate -no-color
+            if ($LASTEXITCODE -ne 0) { throw 'Runner Terraform validation failed.' }
+            terraform -chdir=terraform/runner-network test -no-color
+            if ($LASTEXITCODE -ne 0) { throw 'Runner Terraform mocked tests failed.' }
+          } finally {
+            Remove-Item $rootData, $runnerData -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item Env:TF_DATA_DIR -ErrorAction SilentlyContinue
+          }
+
+      - name: Validate public templates and scripts
+        shell: pwsh
+        run: |
+          foreach ($varFile in Get-ChildItem ./terraform/environments/*.tfvars -File) {
+            ./scripts/powershell/validate-terraform-var-file.ps1 `
+              -VarFile $varFile.FullName `
+              -ExpectedEnvironment $varFile.BaseName
+            if ($LASTEXITCODE -ne 0) {
+              throw "Terraform variable contract failed for '$($varFile.Name)'."
+            }
+          }
+
+          ./scripts/powershell/test-terraform-environment-selection.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Terraform environment selection tests failed.' }
+
+          $parserErrors = [Collections.Generic.List[string]]::new()
+          foreach ($file in Get-ChildItem ./scripts/powershell/*.ps1 -File) {
+            $tokens = $null
+            $errors = $null
+            [void] [Management.Automation.Language.Parser]::ParseFile(
+              $file.FullName,
+              [ref] $tokens,
+              [ref] $errors
+            )
+            foreach ($error in $errors) {
+              $parserErrors.Add("$($file.Name): $($error.Message)")
+            }
+          }
+          if ($parserErrors.Count -gt 0) {
+            throw "PowerShell parser errors: $($parserErrors -join '; ')"
+          }
+
+  promote:
+    name: Open and merge public promotion PR
+    if: github.event_name == 'push'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Create and merge the promotion pull request
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROMOTION_BRANCH: ${{ github.ref_name }}
+        run: |
+          $pullRequest = gh pr list `
+            --repo $env:GITHUB_REPOSITORY `
+            --base main `
+            --head $env:PROMOTION_BRANCH `
+            --state open `
+            --json number `
+            --jq '.[0].number'
+          if ([string]::IsNullOrWhiteSpace($pullRequest)) {
+            $url = gh pr create `
+              --repo $env:GITHUB_REPOSITORY `
+              --base main `
+              --head $env:PROMOTION_BRANCH `
+              --title 'Promote validated public updates' `
+              --body 'Automated promotion of allowlisted, sanitized files after the private deployment and public release gates succeeded.'
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to create the public promotion pull request.' }
+            $pullRequest = ($url.TrimEnd('/') -split '/')[-1]
+          }
+
+          gh pr merge $pullRequest `
+            --repo $env:GITHUB_REPOSITORY `
+            --squash `
+            --delete-branch
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to merge the public promotion pull request.' }
