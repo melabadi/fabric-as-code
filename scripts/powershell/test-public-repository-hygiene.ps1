@@ -11,13 +11,13 @@ $violations = [Collections.Generic.List[string]]::new()
 
 Push-Location $repositoryPath
 try {
-    $trackedFiles = @(git ls-files)
+    $trackedFiles = @(git ls-files --cached --others --exclude-standard)
     if ($LASTEXITCODE -ne 0) {
         throw 'Unable to enumerate tracked files.'
     }
 
     $forbiddenPaths = @(
-        '.github/public-sync/'
+        '.github/public-sync/README.md'
         '.github/workflows/publish-public.yml'
         'docs/MCAPS_FABRIC_RUNNER_EXAMPLE_LINKS.md'
         'docs/screenshots/'

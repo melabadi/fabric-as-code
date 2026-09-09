@@ -35,6 +35,35 @@ jobs:
           terraform_version: 1.13.3
           terraform_wrapper: false
 
+      - name: Enforce automated promotion paths
+        shell: pwsh
+        env:
+          CANDIDATE_BRANCH: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+        run: |
+          if ($env:CANDIDATE_BRANCH -notlike 'automation/public-sync-*') {
+            Write-Host 'Ordinary public change; the public sync allowlist does not apply.'
+            return
+          }
+
+          $manifest = Get-Content ./.github/public-sync/manifest.json -Raw | ConvertFrom-Json
+          $allowedFiles = @($manifest.sharedFiles | ForEach-Object { [string] $_ })
+          $sortedFiles = @($allowedFiles | Sort-Object -Unique)
+          if ($manifest.schemaVersion -ne 1 -or
+              $allowedFiles.Count -eq 0 -or
+              ($allowedFiles -join "`n") -cne ($sortedFiles -join "`n")) {
+            throw 'The public sync manifest must use schema 1 with sorted, unique sharedFiles.'
+          }
+
+          $base = git merge-base HEAD origin/main
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($base)) {
+            throw 'Unable to resolve the public main merge base.'
+          }
+          $changedFiles = @(git diff --name-only "$base...HEAD")
+          $unexpectedFiles = @($changedFiles | Where-Object { $_ -cnotin $allowedFiles })
+          if ($unexpectedFiles.Count -gt 0) {
+            throw "Automated promotion changed non-allowlisted files: $($unexpectedFiles -join ', ')"
+          }
+
       - name: Check public repository hygiene
         shell: pwsh
         run: ./scripts/powershell/test-public-repository-hygiene.ps1
