@@ -144,7 +144,9 @@ workflow succeeds on `main`, the publisher checks out public `main` separately,
 copies only the byte-for-byte shared files listed in the private export
 manifest, and runs the public hygiene, secret-scanning, Terraform, and script
 validation gates. A unique promotion branch is then reviewed and merged through
-the public repository's release workflow.
+the public repository's release workflow. Protected public `main` requires the
+`Public release PR gate`; the publisher queues auto-merge and leaves the branch
+available until that check succeeds.
 
 Files that intentionally contain public templates or private deployment
 evidence are never synchronized by default. Adding a new path requires an
