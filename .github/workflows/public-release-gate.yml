@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   validate:
-    name: Public release gate
+    name: ${{ github.event_name == 'pull_request' && 'Public release PR gate' || 'Public release candidate' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -173,6 +173,7 @@ jobs:
 
           gh pr merge $pullRequest `
             --repo $env:GITHUB_REPOSITORY `
+            --auto `
             --squash `
             --delete-branch
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to merge the public promotion pull request.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to queue automatic merge for the public promotion pull request.' }
