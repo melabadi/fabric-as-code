@@ -180,6 +180,22 @@ jobs:
             $pullRequest = ($url.TrimEnd('/') -split '/')[-1]
           }
 
+          $deadline = [DateTimeOffset]::UtcNow.AddMinutes(2)
+          do {
+            $checkState = gh pr view $pullRequest `
+              --repo $env:GITHUB_REPOSITORY `
+              --json statusCheckRollup | ConvertFrom-Json
+            $candidateChecks = @($checkState.statusCheckRollup | Where-Object {
+                $_.name -eq 'Public release candidate' -and
+                $_.conclusion -eq 'SUCCESS'
+              })
+            if ($candidateChecks.Count -eq 1) { break }
+            if ([DateTimeOffset]::UtcNow -ge $deadline) {
+              throw 'GitHub did not associate the successful public candidate check with the pull request.'
+            }
+            Start-Sleep -Seconds 5
+          } while ($true)
+
           gh pr merge $pullRequest `
             --repo $env:GITHUB_REPOSITORY `
             --auto `
