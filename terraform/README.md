@@ -11,7 +11,10 @@ It also supports two item profiles:
 - `item_deployment_profile = "all"` preserves the complete nine-item demo and is the default for existing deployments.
 
 For a sequential walkthrough, start with the
-[end-to-end deployment guide](../docs/deployment/README.md):
+[end-to-end deployment guide](../docs/deployment/README.md). Its
+[resource destination map](../docs/deployment/README.md#find-each-deployed-resource)
+links each Azure, Fabric, and data-plane resource to its Terraform owner and
+direct or alternate API path. Continue through the stage guides for:
 [capacity](../docs/deployment/01-capacity.md),
 [workspaces](../docs/deployment/02-workspaces.md),
 [workspace settings](../docs/deployment/03-workspace-settings.md),
@@ -53,7 +56,7 @@ Inside the items module, references create a second dependency chain:
 
 | File or directory | Responsibility | Useful explanation |
 | --- | --- | --- |
-| [`../docs/deployment/`](../docs/deployment) | Provides the ordered operator walkthrough. | Each stage links to its owning Terraform resources and official provider documentation. |
+| [`../docs/deployment/`](../docs/deployment) | Provides the ordered operator walkthrough and resource destination map. | Each deployed resource links to its Terraform owner, direct API bridge or alternate script, and stage guide. |
 | [`providers.tf`](providers.tf) | Pins Terraform and provider versions, selects the private Azure Blob backend, and configures Azure CLI authentication. | `azurerm` manages Azure resources; `fabric` manages Fabric resources. The backend uses GitHub OIDC or an authenticated Azure CLI without storage keys. |
 | [`variables.tf`](variables.tf) | Defines and validates the root module contract. | `provision_platform` is the main mode switch. Environment files supply the tenant, subscription, names, and optional existing item IDs. |
 | [`main.tf`](main.tf) | Orchestrates the platform, role-specific workspaces, content, Git, and SQL modules. | `local.cicd_workspace_id` and `local.git_workspace_id` keep definition ownership separate in both deployment modes. |

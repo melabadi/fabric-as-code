@@ -2,23 +2,55 @@
 
 This repository is provider-first. The default GitHub Actions deployment uses Terraform for every Azure and Fabric resource supported by the installed providers. Repository code constructs HTTP requests only where the operation is not a stable declarative resource lifecycle.
 
+## How to trace a deployment
+
+1. Start with the [resource destination map](deployment/README.md#find-each-deployed-resource) to identify where the resource appears and its Terraform address.
+2. Follow the linked root resource or module to see its inputs and dependency order.
+3. Use the **Direct calls made by CI** index below only when the repository constructs an HTTP request itself.
+4. Use **Fabric API through Terraform** for operations delegated to the Fabric provider, or **Optional direct REST scripts** when tracing the standalone alternative.
+
+Provider-managed traffic and direct repository calls can reach the same Fabric
+control plane, but they do not share lifecycle ownership. Use one deployment
+path for a resource; do not place a Terraform-managed workspace or item under
+the numbered REST scripts at the same time.
+
 ## Default workflow boundary
 
-| Concern | Owner | Protocol used by repository code |
-| --- | --- | --- |
-| Resource group and Fabric capacity | `hashicorp/azurerm` | No direct HTTP; the provider calls Azure Resource Manager. |
-| CI/CD workspace, Git authoring workspace, and optional Git connection | `microsoft/fabric` | No direct HTTP; the provider calls the Fabric API. |
-| Workspace role assignments | `microsoft/fabric` | Native `fabric_workspace_role_assignment`; no direct HTTP. |
-| Nine Fabric items and Notebook/Pipeline definitions | `microsoft/fabric` | No direct HTTP; the provider calls the Fabric API and handles long-running operations. |
-| Capacity activation before deployment | `set-capacity-state.ps1` | Azure CLI obtains the ARM token; public Azure Resource Manager `GET`/`POST` routes read and resume the capacity. |
-| Caller-specific Git credentials | `set-fabric-git-credentials.ps1` | Direct Fabric API `GET`/`PATCH` before Terraform so the OIDC identity uses the configured connection. |
-| Workspace inbound IP allowlist | `terraform_data` plus `set-fabric-workspace-firewall.ps1` | Direct Fabric API `GET`/`PUT` because provider 1.12.1 has no workspace communication-policy resource. |
-| Workspace customer-managed keys | `terraform_data` plus `set-fabric-workspace-encryption.ps1` | Public Fabric API `GET`/`POST` because provider 1.12.1 has no workspace-encryption resource. |
-| Warehouse SQL schema, tables, and procedures | `terraform_data` plus `SqlClient` | TDS/SQL, not REST. The server value comes from `fabric_warehouse.properties.connection_string`. |
+The Terraform owners below are conditional. Full-platform mode creates the
+resource group, capacity, and workspaces. Managed-existing mode creates or
+imports the workspaces on a supplied capacity. Externally managed mode consumes
+workspace IDs and leaves the capacity and workspace lifecycle outside this
+root.
+
+| Concern | Deployment destination | Lifecycle owner | Protocol used by repository code |
+| --- | --- | --- | --- |
+| Resource group and Fabric capacity | Selected Azure subscription and resource group in full-platform mode | [`azurerm_resource_group.this`](../terraform/main.tf) and [`module.capacity`](../terraform/main.tf) when `provision_platform = true`; external otherwise | No direct create/update HTTP; AzureRM calls Azure Resource Manager. |
+| CI/CD and Git authoring workspaces | Fabric tenant; assigned to the selected capacity when Terraform manages them | [`module.workspace` and `module.git_workspace`](../terraform/main.tf) in full-platform or managed-existing mode; supplied workspace IDs otherwise | No direct create/update HTTP; the Fabric provider calls the Fabric API when managed. |
+| Optional Git connection | Git authoring workspace only | [`fabric_workspace_git.this`](../terraform/main.tf) | No direct connect HTTP; the Fabric provider calls the Fabric API. |
+| Workspace role assignments | Selected CI/CD and/or Git workspace | [`fabric_workspace_role_assignment.this`](../terraform/main.tf) | Native Fabric provider resource; no direct HTTP. |
+| Selected Fabric items and Notebook/Pipeline definitions | CI/CD deployment workspace only | [`module.items`](../terraform/main.tf): three P0 items, plus six extended items when the profile is `all` | The Fabric provider calls the Fabric API and handles long-running operations. |
+| Capacity activation before deployment | Azure capacity ARM resource ID | [`set-capacity-state.ps1`](../scripts/powershell/set-capacity-state.ps1) | Direct Azure Resource Manager `GET`/`POST` reads and resumes the capacity. |
+| Caller-specific Git credentials | Git authoring workspace, scoped to the OIDC identity | [`terraform_data.git_credentials`](../terraform/main.tf) plus [`set-fabric-git-credentials.ps1`](../scripts/powershell/set-fabric-git-credentials.ps1) | Direct Fabric API `GET`/`PATCH` before provider reconciliation. |
+| Workspace inbound IP allowlist | Each targeted managed workspace | [`terraform_data.workspace_firewall`](../terraform/main.tf) plus [`set-fabric-workspace-firewall.ps1`](../scripts/powershell/set-fabric-workspace-firewall.ps1) | Direct Fabric API `GET`/`PUT`; provider 1.12.1 has no communication-policy resource. |
+| Workspace customer-managed keys | Each workspace named in `workspace_encryption` | [`terraform_data.workspace_encryption`](../terraform/main.tf) plus [`set-fabric-workspace-encryption.ps1`](../scripts/powershell/set-fabric-workspace-encryption.ps1) | Direct Fabric API `GET`/`POST`; provider 1.12.1 has no workspace-encryption resource. |
+| Warehouse SQL schema, tables, and procedures | Inside the CI/CD workspace Warehouse | [`module.sql`](../terraform/main.tf) plus [`deploy-procs.ps1`](../terraform/modules/sql/deploy-procs.ps1) | TDS/SQL, not REST. The server comes from `fabric_warehouse.properties.connection_string`. |
 
 The default workflow does not invoke the numbered REST deployment scripts. Those scripts remain as an educational and troubleshooting alternative.
 
 ## Direct calls made by CI
+
+| Call site | Target | Methods and routes | Why it is direct |
+| --- | --- | --- | --- |
+| [`deploy-terraform.ps1`](../scripts/powershell/deploy-terraform.ps1) | Fabric tenant | `GET https://api.fabric.microsoft.com/v1/workspaces` | Authentication and egress preflight only; it does not manage a workspace. |
+| [`set-capacity-state.ps1`](../scripts/powershell/set-capacity-state.ps1) | Azure capacity ARM resource | `GET {resourceId}` and `POST {resourceId}/resume` | Resume is an operational action, not capacity desired state. |
+| [`set-fabric-git-credentials.ps1`](../scripts/powershell/set-fabric-git-credentials.ps1) | Git authoring workspace and current caller | `GET`/`PATCH /workspaces/{id}/git/myGitCredentials` | Fabric Git credentials are caller-specific. |
+| [`set-fabric-workspace-firewall.ps1`](../scripts/powershell/set-fabric-workspace-firewall.ps1) | Each targeted workspace | `GET`/`PUT /workspaces/{id}/networking/communicationPolicy/inbound/firewall`; `PUT /workspaces/{id}/networking/communicationPolicy` | The installed Fabric provider has no workspace communication-policy resource. |
+| [`set-fabric-workspace-encryption.ps1`](../scripts/powershell/set-fabric-workspace-encryption.ps1) | Each workspace in the encryption map | `GET /workspaces/{id}/encryption`; `POST /workspaces/{id}/encryption/assign` or `/reset` | The installed Fabric provider has no workspace-encryption resource. |
+
+[`verify-fabric-network.ps1`](../scripts/powershell/verify-fabric-network.ps1)
+also reads Fabric workspace, item, firewall, encryption, and Warehouse metadata
+after deployment. Those requests are verification canaries, not lifecycle
+owners.
 
 [`set-capacity-state.ps1`](../scripts/powershell/set-capacity-state.ps1) targets this ARM resource:
 
@@ -97,31 +129,34 @@ Terraform has no native resource for arbitrary Fabric Warehouse T-SQL. A built-i
 
 ## Optional direct REST scripts
 
-The numbered PowerShell and Bash flows predate the provider-first pipeline and are still useful for learning or isolated troubleshooting. They acquire a token for `https://api.fabric.microsoft.com` and call these routes under `https://api.fabric.microsoft.com/v1`:
+The numbered PowerShell and Bash flows predate the provider-first pipeline and are still useful for learning or isolated troubleshooting. They acquire a token for `https://api.fabric.microsoft.com` and call these routes under `https://api.fabric.microsoft.com/v1`. Bash counterparts exist under [`scripts/bash/`](../scripts/bash) for steps 03 through 06 and 99; the step 07 Git fallback is PowerShell-only. Step 05 always deploys all nine demonstration items and has no `p0` profile switch.
 
-| Method and route | Used for |
-| --- | --- |
-| `GET /workspaces` | Resolve a workspace by display name. |
-| `POST /workspaces` | Create a workspace. |
-| `GET /capacities` | Resolve the Fabric capacity GUID from its Azure resource name. |
-| `POST /workspaces/{workspaceId}/assignToCapacity` | Assign the workspace to that capacity. |
-| `GET /workspaces/{workspaceId}/items` | Resolve item IDs by type and display name. |
-| `POST /workspaces/{workspaceId}/lakehouses` | Create a Lakehouse. |
-| `POST /workspaces/{workspaceId}/warehouses` | Create a Warehouse. |
-| `POST /workspaces/{workspaceId}/environments` | Create an Environment. |
-| `POST /workspaces/{workspaceId}/eventhouses` | Create an Eventhouse. |
-| `POST /workspaces/{workspaceId}/kqlDatabases` | Create a writable KQL Database under the Eventhouse. |
-| `POST /workspaces/{workspaceId}/variableLibraries` | Create a Variable Library. |
-| `POST /workspaces/{workspaceId}/mlExperiments` | Create an ML Experiment. |
-| `POST /workspaces/{workspaceId}/notebooks` | Create a Notebook with an inline Base64 definition. |
-| `POST /workspaces/{workspaceId}/items` | Create a `DataPipeline` with an inline Base64 definition. |
-| `POST /workspaces/{workspaceId}/items/{itemId}/updateDefinition?updateMetadata=false` | Update an existing Notebook or Pipeline definition without changing item metadata. |
-| `GET /workspaces/{workspaceId}/warehouses/{warehouseId}` | Resolve the SQL endpoint in the standalone SQL script only. The Terraform path does not use this call. |
-| `POST /workspaces/{workspaceId}/git/connect` | Connect Git in the optional PowerShell fallback only. |
-| `POST /workspaces/{workspaceId}/git/initializeConnection` | Initialize that fallback connection with `PreferWorkspace`. |
-| `DELETE /workspaces/{workspaceId}` | Delete the workspace in the explicit teardown script. |
+| Method and route | Used for | PowerShell source |
+| --- | --- | --- |
+| `GET /workspaces` | Resolve a workspace by display name. | [`common.ps1`](../scripts/powershell/common.ps1) |
+| `POST /workspaces` | Create a workspace. | [`03-create-workspace.ps1`](../scripts/powershell/03-create-workspace.ps1) |
+| `GET /capacities` | Resolve the Fabric capacity GUID from its Azure resource name. | [`common.ps1`](../scripts/powershell/common.ps1) |
+| `POST /workspaces/{workspaceId}/assignToCapacity` | Assign the workspace to that capacity. | [`04-assign-capacity.ps1`](../scripts/powershell/04-assign-capacity.ps1) |
+| `GET /workspaces/{workspaceId}/items` | Resolve item IDs by type and display name. | [`05-deploy-items.ps1`](../scripts/powershell/05-deploy-items.ps1) |
+| `POST /workspaces/{workspaceId}/lakehouses` | Create a Lakehouse. | [`05-deploy-items.ps1`](../scripts/powershell/05-deploy-items.ps1) |
+| `POST /workspaces/{workspaceId}/warehouses` | Create a Warehouse. | [`05-deploy-items.ps1`](../scripts/powershell/05-deploy-items.ps1) |
+| `POST /workspaces/{workspaceId}/environments` | Create an Environment. | [`05-deploy-items.ps1`](../scripts/powershell/05-deploy-items.ps1) |
+| `POST /workspaces/{workspaceId}/eventhouses` | Create an Eventhouse. | [`05-deploy-items.ps1`](../scripts/powershell/05-deploy-items.ps1) |
+| `POST /workspaces/{workspaceId}/kqlDatabases` | Create a writable KQL Database under the Eventhouse. | [`05-deploy-items.ps1`](../scripts/powershell/05-deploy-items.ps1) |
+| `POST /workspaces/{workspaceId}/variableLibraries` | Create a Variable Library. | [`05-deploy-items.ps1`](../scripts/powershell/05-deploy-items.ps1) |
+| `POST /workspaces/{workspaceId}/mlExperiments` | Create an ML Experiment. | [`05-deploy-items.ps1`](../scripts/powershell/05-deploy-items.ps1) |
+| `POST /workspaces/{workspaceId}/notebooks` | Create a Notebook with an inline Base64 definition. | [`05-deploy-items.ps1`](../scripts/powershell/05-deploy-items.ps1) |
+| `POST /workspaces/{workspaceId}/items` | Create a `DataPipeline` with an inline Base64 definition. | [`05-deploy-items.ps1`](../scripts/powershell/05-deploy-items.ps1) |
+| `POST /workspaces/{workspaceId}/items/{itemId}/updateDefinition?updateMetadata=false` | Update an existing Notebook or Pipeline definition without changing item metadata. | [`05-deploy-items.ps1`](../scripts/powershell/05-deploy-items.ps1) |
+| `GET /workspaces/{workspaceId}/warehouses/{warehouseId}` | Resolve the SQL endpoint in the standalone SQL script only. The Terraform path does not use this call. | [`06-deploy-stored-procedures.ps1`](../scripts/powershell/06-deploy-stored-procedures.ps1) |
+| `POST /workspaces/{workspaceId}/git/connect` | Connect Git in the optional PowerShell fallback only. | [`07-git-integration.ps1`](../scripts/powershell/07-git-integration.ps1) |
+| `POST /workspaces/{workspaceId}/git/initializeConnection` | Initialize that fallback connection with `PreferWorkspace`. | [`07-git-integration.ps1`](../scripts/powershell/07-git-integration.ps1) |
+| `DELETE /workspaces/{workspaceId}` | Delete the workspace in the explicit teardown script. | [`99-teardown.ps1`](../scripts/powershell/99-teardown.ps1) |
 
-The Git fallback connects and initializes only. It does not call status, commit-to-Git, update-from-Git, or disconnect operations.
+The Git fallback connects and initializes the same single workspace recorded in
+`.state.json`; it is not equivalent to Terraform's dedicated authoring
+workspace. It does not call status, commit-to-Git, update-from-Git, or
+disconnect operations.
 
 The direct scripts perform name-based discovery from a single list response. They do not follow continuation tokens, which is another reason to prefer Terraform for shared or large workspaces.
 

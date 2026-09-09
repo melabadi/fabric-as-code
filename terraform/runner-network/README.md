@@ -12,6 +12,30 @@ flowchart LR
   SUBNET -->|"private endpoint"| STATE["Versioned Blob state"]
 ```
 
+## Resource destination map
+
+This directory is a separate Terraform root and state boundary. Nothing in
+this table is created by the core [`terraform/`](../) apply.
+
+| Resource or setting | Where it is deployed | Terraform owner in [`main.tf`](main.tf) |
+| --- | --- | --- |
+| GitHub resource provider registration | Azure subscription | `azurerm_resource_provider_registration.github_network` |
+| Bootstrap resource group | Selected Azure subscription and region | `azurerm_resource_group.this` |
+| VNet and runner, firewall, and private-endpoint subnets | Bootstrap Azure resource group | `azurerm_virtual_network.this` and the three `azurerm_subnet` resources |
+| Runner inbound protection | Runner subnet | `azurerm_network_security_group.runners` and its subnet association |
+| Fixed egress and allowed destinations | Azure Firewall subnet and policy in the bootstrap resource group | `azapi_resource.firewall_public_ip`, `azurerm_firewall_policy.this`, `azurerm_firewall.this`, and `azurerm_firewall_policy_rule_collection_group.runner_egress` |
+| Forced runner egress | Runner subnet | `azurerm_route_table.runners` and its subnet association |
+| Private Terraform state | Storage account, Blob service, and container in the bootstrap resource group | `azapi_resource.state`, `azapi_resource.state_blob_service`, and `azapi_resource.state_container` |
+| Private Blob resolution | Private-endpoint subnet and VNet-linked private DNS zone | `azurerm_private_endpoint.state_blob`, `azurerm_private_dns_zone.blob`, and its VNet link |
+| Deployment identity access | State container and bootstrap resource group | `azurerm_role_assignment.state_blob_data` and `azurerm_role_assignment.runner_network_reader` |
+| Firewall monitoring | Log Analytics workspace plus diagnostic setting on Azure Firewall | `azurerm_log_analytics_workspace.firewall` and `azurerm_monitor_diagnostic_setting.firewall` |
+| Hosted-compute network binding | `GitHub.Network/networkSettings` resource in the bootstrap resource group, bound to the GitHub business ID and runner subnet | `azapi_resource.github_network_settings` |
+
+Terraform creates the Azure network settings object, but a GitHub enterprise or
+organization owner still creates the runner group and larger runner in GitHub.
+Fabric tenant settings and workspace-level firewall eligibility are also
+administrator prerequisites; they are not resources in this root.
+
 ## Why this shape
 
 - Azure VNet injection is available only for GitHub-hosted **larger** Ubuntu and

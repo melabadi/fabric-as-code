@@ -1,5 +1,5 @@
 output "github_network_settings_id" {
-  description = "GitHubId entered under Organization Settings > Hosted compute networking > Azure private network."
+  description = "GitHubId entered under Enterprise Settings > Hosted compute networking, or Organization Settings when enterprise policy permits."
   value       = try(azapi_resource.github_network_settings.output.tags.GitHubId, null)
 }
 

@@ -12,11 +12,11 @@ Everything is **scripted, idempotent, and parameter-driven**, so you can repeat 
 >
 > 🖥️ Slides: [docs/presentation.md](docs/presentation.md) (Marp source) · [docs/Fabric-as-Code.pptx](docs/Fabric-as-Code.pptx) · [docs/Fabric-as-Code.pdf](docs/Fabric-as-Code.pdf)
 >
-> 🏗️ Start with the [end-to-end Terraform deployment guide](docs/deployment/README.md), then use the [terraform/](terraform/) reference while browsing the implementation.
+> 🏗️ Start with the [end-to-end Terraform deployment guide](docs/deployment/README.md). Its [resource destination map](docs/deployment/README.md#find-each-deployed-resource) shows where every core resource is deployed and links to its Terraform or direct API owner.
 >
 > 🤝 See [Working from code and the Fabric UI](docs/WORKING_WITH_FABRIC.md) before enabling Git integration or editing managed items in a workspace.
 >
-> 🔌 See [REST API usage](docs/REST_API_USAGE.md) for the provider boundary and every direct fallback route.
+> 🔌 Use the [REST API call-site index](docs/REST_API_USAGE.md#direct-calls-made-by-ci) to trace direct CI requests, or [REST API usage](docs/REST_API_USAGE.md#optional-direct-rest-scripts) to find the implementing script for every fallback route.
 >
 > 📚 See [deployment sources](docs/DEPLOYMENT_SOURCES.md) for the implementation-to-official-documentation map covering every deployed component.
 >
@@ -79,7 +79,13 @@ flowchart LR
     PL -->|runs| NB
 ```
 
-The default GitHub workflow lets Terraform create or adopt the platform and both workspace roles. `fabric_workspace_git` connects only the authoring workspace; all nine Terraform-managed items and T-SQL deploy only to CI/CD. One operational helper resumes a paused capacity before Terraform and leaves it active after deployment.
+In full-platform mode, the default workflow creates the resource group,
+capacity, and both workspaces. Managed-existing mode uses a supplied capacity
+and creates or imports both workspaces; externally managed mode consumes their
+IDs without owning their lifecycle. `fabric_workspace_git` connects only the
+authoring workspace, while the selected Terraform items and T-SQL deploy only
+to CI/CD. One operational helper resumes a paused capacity before Terraform and
+leaves it active after deployment.
 
 ### Terraform P0 coverage
 
@@ -115,16 +121,26 @@ initialization, the authoring workspace contains the supported definitions from
 4. Terraform reads those same `fabric-git/` files, renders target IDs in memory, and deploys them to the CI/CD workspace.
 5. Validate the CI/CD workspace without editing it directly.
 
-The two workspaces share one definition source but not lifecycle ownership: Fabric Git synchronizes only the authoring workspace, while Terraform manages only the CI/CD workspace. See [Working from code and the Fabric UI](docs/WORKING_WITH_FABRIC.md) for details.
+The two workspaces share one definition source but not item-definition
+ownership: Fabric Git synchronizes definitions in the authoring workspace,
+while Terraform manages definitions in the CI/CD workspace. Depending on the
+deployment mode, Terraform may also own the lifecycle of both workspace
+containers. See [Working from code and the Fabric UI](docs/WORKING_WITH_FABRIC.md)
+for details.
 
-The alternate numbered scripts execute this equivalent flow directly:
+The alternate numbered scripts execute a legacy single-workspace, all-item flow directly:
 
 1. **Provision** a resource group + Fabric capacity (Bicep).
 2. **Create** a Fabric workspace (REST).
 3. **Assign** the workspace to the capacity (REST).
 4. **Deploy nine items** — Lakehouse, Warehouse, Environment, Eventhouse, KQL Database, Variable Library, ML Experiment, Notebook, and Data Pipeline.
 5. **Deploy stored procedures** into the Warehouse (T-SQL via `sqlcmd`).
-6. *(optional)* **Connect the workspace to Git** for ongoing source control.
+6. *(optional, PowerShell only)* **Connect that same workspace to Git** for ongoing source control.
+
+This script path always deploys all nine items and does not reproduce
+Terraform's separate Git-authoring and CI/CD-workspace ownership model. Use it
+for learning or isolated troubleshooting, not alongside Terraform management of
+the same workspace.
 
 ---
 
