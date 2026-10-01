@@ -200,7 +200,7 @@ $notebookId = Get-ItemId -Type 'Notebook' -DisplayName $cfg.NOTEBOOK_NAME
 $nbContent = Get-Content `
     (Join-Path $repoRoot 'fabric-git/nb_git_authoring_demo.Notebook/notebook-content.py') -Raw
 $nbDefinition = @{
-    format = 'py'
+    format = 'fabricGitSource'
     parts  = @(
         @{
             path        = 'notebook-content.py'
